@@ -1,33 +1,53 @@
 package bankservice.it;
 
-import static io.dropwizard.testing.ResourceHelpers.resourceFilePath;
-
 import bankservice.bootstrap.BankServiceApplication;
 import bankservice.it.client.ResourcesClient;
 import bankservice.it.client.ResourcesDtos;
 import bankservice.it.setup.StateSetup;
-import io.dropwizard.core.Configuration;
-import io.dropwizard.testing.junit5.DropwizardAppExtension;
-import io.dropwizard.testing.junit5.DropwizardExtensionsSupport;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.extension.ExtendWith;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 
-@ExtendWith(DropwizardExtensionsSupport.class)
+@SpringBootTest(classes = BankServiceApplication.class, webEnvironment = WebEnvironment.RANDOM_PORT,
+    properties = "management.server.port=0")
 abstract class BaseIT {
 
-  protected static final DropwizardAppExtension<Configuration> BANK_SERVICE =
-      new DropwizardAppExtension<>(BankServiceApplication.class,
-          resourceFilePath("integration.yml"));
+  /**
+   * Set together with {@link #ADMIN_URL} to run the suite against a service already running.
+   */
+  static final String APPLICATION_URL = "bankservice.it.baseUrl";
+  static final String ADMIN_URL = "bankservice.it.adminUrl";
 
-  protected static ResourcesClient resourcesClient;
-  protected static ResourcesDtos resourcesDtos;
-  protected static StateSetup stateSetup;
+  @Value("${local.server.port}")
+  private int port;
 
-  @BeforeAll
-  public static void setUpBaseClass() {
-    resourcesClient = new ResourcesClient(BANK_SERVICE.getEnvironment(),
-        BANK_SERVICE.getLocalPort());
-    resourcesDtos = new ResourcesDtos(BANK_SERVICE.getObjectMapper());
+  @Value("${local.management.port}")
+  private int managementPort;
+
+  @Autowired
+  private ObjectMapper objectMapper;
+
+  protected ResourcesClient resourcesClient;
+  protected ResourcesDtos resourcesDtos;
+  protected StateSetup stateSetup;
+
+  @BeforeEach
+  public void setUpBaseClass() {
+    resourcesClient = new ResourcesClient(applicationUrl());
+    resourcesDtos = new ResourcesDtos(objectMapper);
     stateSetup = new StateSetup(resourcesClient, resourcesDtos);
+  }
+
+  /** The application port of the service under test, without a trailing slash. */
+  protected String applicationUrl() {
+    return System.getProperty(APPLICATION_URL, "http://localhost:" + port);
+  }
+
+  /** The admin port of the service under test, without a trailing slash. */
+  protected String adminUrl() {
+    return System.getProperty(ADMIN_URL, "http://localhost:" + managementPort);
   }
 }

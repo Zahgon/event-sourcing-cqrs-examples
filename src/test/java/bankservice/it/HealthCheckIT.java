@@ -1,41 +1,55 @@
 package bankservice.it;
 
-import static jakarta.ws.rs.core.UriBuilder.fromUri;
-import static java.util.logging.Level.INFO;
-import static java.util.logging.Logger.getLogger;
-import static org.glassfish.jersey.logging.LoggingFeature.DEFAULT_LOGGER_NAME;
-import static org.glassfish.jersey.logging.LoggingFeature.Verbosity.PAYLOAD_ANY;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.core.IsEqual.equalTo;
 
-import io.dropwizard.client.JerseyClientBuilder;
-import jakarta.ws.rs.client.Client;
-import jakarta.ws.rs.core.Response;
 import java.net.URI;
-import org.glassfish.jersey.logging.LoggingFeature;
-import org.junit.jupiter.api.BeforeAll;
+import java.time.Duration;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.util.UriComponentsBuilder;
 
 class HealthCheckIT extends BaseIT {
 
-  private static Client client;
+  private TestRestTemplate client;
 
-  @BeforeAll
-  static void setUpClass() {
-    client = new JerseyClientBuilder(BANK_SERVICE.getEnvironment())
-        .build(HealthCheckIT.class.getName())
-        .register(new LoggingFeature(getLogger(DEFAULT_LOGGER_NAME), INFO, PAYLOAD_ANY, 1024));
+  @BeforeEach
+  void setUpClass() {
+    client = new TestRestTemplate(new RestTemplateBuilder()
+        .connectTimeout(Duration.ofSeconds(10))
+        .readTimeout(Duration.ofSeconds(30)));
   }
 
   @Test
   void overallHealth() {
-    Response response = client.target(healthCheckUrl()).request().get();
-    response.close();
-    assertThat(response.getStatus(), equalTo(200));
+    ResponseEntity<String> response = client.getForEntity(healthCheckUrl(), String.class);
+    assertThat(response.getStatusCode().value(), equalTo(200));
+  }
+
+  /**
+   * Dropwizard's admin health check renders its registry as
+   * {@code {"deadlocks":{"duration":N,"healthy":true,"timestamp":"..."}}} on
+   * {@code application/json}. Spring Boot's stock endpoint answers {@code {"status":"UP"}} on
+   * {@code application/vnd.spring-boot.actuator.v3+json}, so asserting the status alone -- as the
+   * inherited test does -- cannot tell the two contracts apart.
+   */
+  @Test
+  void healthCheckKeepsTheDropwizardRegistryShape() {
+    ResponseEntity<String> response = client.getForEntity(healthCheckUrl(), String.class);
+    assertThat(response.getStatusCode().value(), equalTo(200));
+    assertThat(response.getHeaders().getContentType().toString(),
+        equalTo("application/json"));
+    assertThat(response.getBody().startsWith("{\"deadlocks\":{"), equalTo(true));
+    assertThat(response.getBody().contains("\"healthy\":true"), equalTo(true));
+    assertThat(response.getBody().contains("\"duration\":"), equalTo(true));
+    assertThat(response.getBody().contains("\"timestamp\":"), equalTo(true));
+    assertThat(response.getBody().contains("\"status\""), equalTo(false));
   }
 
   private URI healthCheckUrl() {
-    return fromUri("http://localhost").port(BANK_SERVICE.getAdminPort()).path("healthcheck")
-        .build();
+    return UriComponentsBuilder.fromUriString(adminUrl()).path("/healthcheck").build().toUri();
   }
 }

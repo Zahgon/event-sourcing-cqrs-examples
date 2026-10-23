@@ -1,13 +1,22 @@
 package bankservice.bootstrap;
 
-import static java.util.concurrent.Executors.newSingleThreadExecutor;
-import static java.util.logging.Level.INFO;
-import static java.util.logging.Logger.getLogger;
-import static org.glassfish.jersey.logging.LoggingFeature.DEFAULT_LOGGER_NAME;
-import static org.glassfish.jersey.logging.LoggingFeature.Verbosity.PAYLOAD_ANY;
-
 import bankservice.domain.model.EventStore;
+import bankservice.port.incoming.adapter.resources.AllowedMethodsFilter;
+import bankservice.port.incoming.adapter.resources.ConsumedMediaTypeInterceptor;
+import bankservice.port.incoming.adapter.resources.DropwizardErrorMapper;
+import bankservice.port.incoming.adapter.resources.HeadEntityLengthFilter;
+import bankservice.port.incoming.adapter.resources.JettyErrorPageFilter;
+import bankservice.port.incoming.adapter.resources.JettyGzipFilter;
+import bankservice.port.incoming.adapter.resources.JettyRequestLog;
+import bankservice.port.incoming.adapter.resources.LogbackEventMeters;
 import bankservice.port.incoming.adapter.resources.OptimisticLockingExceptionMapper;
+import bankservice.port.incoming.adapter.resources.OptionsEntityFilter;
+import bankservice.port.incoming.adapter.resources.RequestLogFilter;
+import bankservice.port.incoming.adapter.resources.RequestMetrics;
+import bankservice.port.incoming.adapter.resources.RequestMetricsFilter;
+import bankservice.port.incoming.adapter.resources.ResponseFieldFilter;
+import bankservice.port.incoming.adapter.resources.UuidPathParams;
+import bankservice.port.incoming.adapter.resources.ValidationExceptionMapper;
 import bankservice.port.incoming.adapter.resources.accounts.AccountNotFoundExceptionMapper;
 import bankservice.port.incoming.adapter.resources.accounts.AccountResource;
 import bankservice.port.incoming.adapter.resources.accounts.AccountsResource;
@@ -26,64 +35,275 @@ import bankservice.projection.clientaccounts.ClientAccountsResource;
 import bankservice.projection.clientaccounts.InMemoryAccountsRepository;
 import bankservice.service.account.AccountService;
 import bankservice.service.client.ClientService;
-import com.google.common.eventbus.AsyncEventBus;
 import com.google.common.eventbus.EventBus;
-import io.dropwizard.core.Application;
-import io.dropwizard.core.Configuration;
-import io.dropwizard.core.setup.Environment;
-import org.glassfish.jersey.linking.DeclarativeLinkingFeature;
-import org.glassfish.jersey.logging.LoggingFeature;
+import jakarta.servlet.Filter;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.web.servlet.DispatcherServletAutoConfiguration;
+import org.springframework.boot.autoconfigure.web.servlet.error.ErrorMvcAutoConfiguration;
+import org.springframework.boot.web.embedded.jetty.JettyServletWebServerFactory;
+import org.springframework.boot.web.server.WebServerFactoryCustomizer;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.annotation.Bean;
+import org.springframework.web.servlet.DispatcherServlet;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.PathMatchConfigurer;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+import org.springframework.web.util.pattern.PathPatternParser;
 
-public class BankServiceApplication extends Application<Configuration> {
+// Jersey owned every path, so /error was as unrouted as any other; Spring Boot's error controller
+// would answer it with its own body. The container's error pages are reproduced by the filters.
+@SpringBootApplication(exclude = ErrorMvcAutoConfiguration.class)
+public class BankServiceApplication {
 
-  public static void main(String[] args) throws Exception {
-    new BankServiceApplication().run(args);
+  public static void main(String[] args) {
+    SpringApplication.run(BankServiceApplication.class, args);
   }
 
-  @Override
-  public void run(Configuration configuration, Environment environment) throws Exception {
-    registerFilters(environment);
-    registerExceptionMappers(environment);
-    registerHypermediaSupport(environment);
-    registerResources(environment);
+  /**
+   * Dropwizard's instrumented Logback appender; the admin port's {@code /metrics} reads it. The
+   * context closes it, detaching it from the root logger.
+   */
+  @Bean
+  public LogbackEventMeters logbackEventMeters() {
+    return LogbackEventMeters.attachToRootLogger();
   }
 
-  private void registerFilters(Environment environment) {
-    environment.jersey()
-        .register(new LoggingFeature(getLogger(DEFAULT_LOGGER_NAME), INFO, PAYLOAD_ANY, 1024));
+  /**
+   * Dropwizard's request log on the application connector.
+   */
+  @Bean
+  public WebServerFactoryCustomizer<JettyServletWebServerFactory> requestLog() {
+    return JettyRequestLog.customizer();
   }
 
-  private void registerExceptionMappers(Environment environment) {
-    environment.jersey().register(AccountNotFoundExceptionMapper.class);
-    environment.jersey().register(OptimisticLockingExceptionMapper.class);
+  /**
+   * Dropwizard's instrumented handler on the application connector; {@code /metrics} reads it.
+   */
+  @Bean
+  public RequestMetrics requestMetrics() {
+    return new RequestMetrics();
   }
 
-  private void registerHypermediaSupport(Environment environment) {
-    environment.jersey().getResourceConfig().register(DeclarativeLinkingFeature.class);
+  // exception mappers
+  @Bean
+  public AccountNotFoundExceptionMapper accountNotFoundExceptionMapper() {
+    return new AccountNotFoundExceptionMapper();
   }
 
-  private void registerResources(Environment environment) {
-    EventStore eventStore = new InMemoryEventStore();
-    EventBus eventBus = new AsyncEventBus(newSingleThreadExecutor());
+  @Bean
+  public OptimisticLockingExceptionMapper optimisticLockingExceptionMapper() {
+    return new OptimisticLockingExceptionMapper();
+  }
 
-    // domain model
-    AccountService accountService = new AccountService(eventStore, eventBus);
-    environment.jersey().register(new AccountsResource(accountService));
-    environment.jersey().register(new AccountResource(accountService));
-    environment.jersey().register(new DepositsResource(accountService));
-    environment.jersey().register(new WithdrawalsResource(accountService));
+  @Bean
+  public ValidationExceptionMapper validationExceptionMapper() {
+    return new ValidationExceptionMapper();
+  }
 
-    ClientService clientService = new ClientService(eventStore);
-    environment.jersey().register(new ClientsResource(clientService));
-    environment.jersey().register(new ClientResource(clientService));
+  @Bean
+  public DropwizardErrorMapper dropwizardErrorMapper() {
+    return new DropwizardErrorMapper();
+  }
 
-    // read model
-    TransactionsRepository transactionsRepository = new InMemoryTransactionsRepository();
-    eventBus.register(new TransactionsListener(transactionsRepository));
-    environment.jersey().register(new AccountTransactionsResource(transactionsRepository));
+  // filters
+  @Bean
+  public FilterRegistrationBean<RequestMetricsFilter> requestMetricsFilter(
+      RequestMetrics requestMetrics) {
+    return registration(new RequestMetricsFilter(requestMetrics), RequestMetricsFilter.ORDER);
+  }
 
-    AccountsRepository accountsRepository = new InMemoryAccountsRepository();
-    eventBus.register(new AccountsListener(accountsRepository));
-    environment.jersey().register(new ClientAccountsResource(accountsRepository));
+  @Bean
+  public FilterRegistrationBean<RequestLogFilter> requestLogFilter() {
+    return registration(new RequestLogFilter(), RequestLogFilter.ORDER);
+  }
+
+  @Bean
+  public FilterRegistrationBean<AllowedMethodsFilter> allowedMethodsFilter() {
+    return registration(new AllowedMethodsFilter(), AllowedMethodsFilter.ORDER);
+  }
+
+  @Bean
+  public FilterRegistrationBean<JettyGzipFilter> jettyGzipFilter() {
+    return registration(new JettyGzipFilter(), JettyGzipFilter.ORDER);
+  }
+
+  @Bean
+  public FilterRegistrationBean<HeadEntityLengthFilter> headEntityLengthFilter() {
+    return registration(new HeadEntityLengthFilter(), HeadEntityLengthFilter.ORDER);
+  }
+
+  @Bean
+  public FilterRegistrationBean<JettyErrorPageFilter> jettyErrorPageFilter() {
+    return registration(new JettyErrorPageFilter(), JettyErrorPageFilter.ORDER);
+  }
+
+  @Bean
+  public FilterRegistrationBean<OptionsEntityFilter> optionsEntityFilter() {
+    return registration(new OptionsEntityFilter(), OptionsEntityFilter.ORDER);
+  }
+
+  @Bean
+  public FilterRegistrationBean<ResponseFieldFilter> responseFieldFilter() {
+    return registration(new ResponseFieldFilter(), ResponseFieldFilter.ORDER);
+  }
+
+  /**
+   * Jersey answered OPTIONS for an unrouted path with its plain 404. Spring's dispatcher falls back
+   * to {@code HttpServlet#doOptions} when no handler set an {@code Allow} field and lists every
+   * servlet method on that 404, so OPTIONS goes through the handler mappings only.
+   */
+  @Bean(name = DispatcherServletAutoConfiguration.DEFAULT_DISPATCHER_SERVLET_BEAN_NAME)
+  public DispatcherServlet dispatcherServlet() {
+    return new DispatcherServlet() {
+      private static final long serialVersionUID = 1L;
+
+      @Override
+      protected void doOptions(HttpServletRequest request, HttpServletResponse response)
+          throws ServletException, IOException {
+        processRequest(request, response);
+      }
+    };
+  }
+
+  private static <T extends Filter> FilterRegistrationBean<T> registration(
+      T filter, int order) {
+    FilterRegistrationBean<T> registration = new FilterRegistrationBean<>(filter);
+    registration.setOrder(order);
+    return registration;
+  }
+
+  /**
+   * Jersey treated a trailing slash as part of the same path, so {@code /clients/{id}/} returned
+   * the client. Spring Boot 3 stopped matching an optional trailing separator by default.
+   */
+  @Bean
+  public WebMvcConfigurer trailingSlashPathMatch() {
+    return new WebMvcConfigurer() {
+      @Override
+      public void configurePathMatch(PathMatchConfigurer configurer) {
+        PathPatternParser parser = new PathPatternParser();
+        parser.setMatchOptionalTrailingSeparator(true);
+        configurer.setPatternParser(parser);
+      }
+    };
+  }
+
+  @Bean
+  public UuidPathParams uuidPathParams() {
+    return new UuidPathParams();
+  }
+
+  /**
+   * The routes whose Jersey resources consumed JSON; the transactions projection declared no
+   * consumed type.
+   */
+  @Bean
+  public WebMvcConfigurer consumedMediaType() {
+    return new WebMvcConfigurer() {
+      @Override
+      public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(new ConsumedMediaTypeInterceptor())
+            .addPathPatterns("/clients", "/clients/**", "/accounts", "/accounts/**")
+            .excludePathPatterns("/accounts/*/transactions", "/accounts/*/transactions/");
+      }
+    };
+  }
+
+  // infrastructure
+  @Bean
+  public EventStore eventStore() {
+    return new InMemoryEventStore();
+  }
+
+  /**
+   * Feeds the projections asynchronously; the context closes it, stopping its delivery thread.
+   */
+  @Bean
+  public EventBus eventBus() {
+    return new SingleThreadEventBus();
+  }
+
+  // domain model
+  @Bean
+  public AccountService accountService(EventStore eventStore, EventBus eventBus) {
+    return new AccountService(eventStore, eventBus);
+  }
+
+  @Bean
+  public AccountsResource accountsResource(AccountService accountService) {
+    return new AccountsResource(accountService);
+  }
+
+  @Bean
+  public AccountResource accountResource(AccountService accountService) {
+    return new AccountResource(accountService);
+  }
+
+  @Bean
+  public DepositsResource depositsResource(AccountService accountService) {
+    return new DepositsResource(accountService);
+  }
+
+  @Bean
+  public WithdrawalsResource withdrawalsResource(AccountService accountService) {
+    return new WithdrawalsResource(accountService);
+  }
+
+  @Bean
+  public ClientService clientService(EventStore eventStore) {
+    return new ClientService(eventStore);
+  }
+
+  @Bean
+  public ClientsResource clientsResource(ClientService clientService) {
+    return new ClientsResource(clientService);
+  }
+
+  @Bean
+  public ClientResource clientResource(ClientService clientService) {
+    return new ClientResource(clientService);
+  }
+
+  // read model
+  @Bean
+  public TransactionsRepository transactionsRepository() {
+    return new InMemoryTransactionsRepository();
+  }
+
+  @Bean
+  public TransactionsListener transactionsListener(EventBus eventBus,
+      TransactionsRepository transactionsRepository) {
+    TransactionsListener transactionsListener = new TransactionsListener(transactionsRepository);
+    eventBus.register(transactionsListener);
+    return transactionsListener;
+  }
+
+  @Bean
+  public AccountTransactionsResource accountTransactionsResource(
+      TransactionsRepository transactionsRepository) {
+    return new AccountTransactionsResource(transactionsRepository);
+  }
+
+  @Bean
+  public AccountsRepository accountsRepository() {
+    return new InMemoryAccountsRepository();
+  }
+
+  @Bean
+  public AccountsListener accountsListener(EventBus eventBus,
+      AccountsRepository accountsRepository) {
+    AccountsListener accountsListener = new AccountsListener(accountsRepository);
+    eventBus.register(accountsListener);
+    return accountsListener;
+  }
+
+  @Bean
+  public ClientAccountsResource clientAccountsResource(AccountsRepository accountsRepository) {
+    return new ClientAccountsResource(accountsRepository);
   }
 }

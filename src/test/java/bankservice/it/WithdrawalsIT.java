@@ -7,18 +7,18 @@ import static org.hamcrest.Matchers.equalTo;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import jakarta.ws.rs.core.Response;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.ResponseEntity;
 
 class WithdrawalsIT extends BaseIT {
 
   @Test
   void returnAccountNotFound() {
     ObjectNode deposit = resourcesDtos.withdrawalDto(TEN);
-    Response response = resourcesClient.postWithdrawal(randomUUID().toString(), deposit);
-    response.close();
-    assertThat(response.getStatus(), equalTo(404));
+    ResponseEntity<JsonNode> response =
+        resourcesClient.postWithdrawal(randomUUID().toString(), deposit);
+    assertThat(response.getStatusCode().value(), equalTo(404));
   }
 
   @Test
@@ -29,15 +29,14 @@ class WithdrawalsIT extends BaseIT {
     String accountId = stateSetup.newAccountWithBalance(randomUUID().toString(), previousBalance);
     {
       ObjectNode withdrawal = resourcesDtos.withdrawalDto(withdrawalAmount);
-      Response response = resourcesClient.postWithdrawal(accountId, withdrawal);
-      response.close();
-      assertThat(response.getStatus(), equalTo(204));
+      ResponseEntity<JsonNode> response = resourcesClient.postWithdrawal(accountId, withdrawal);
+      assertThat(response.getStatusCode().value(), equalTo(204));
     }
     {
-      Response response = resourcesClient.getAccount(accountId);
-      JsonNode account = response.readEntity(JsonNode.class);
+      ResponseEntity<JsonNode> response = resourcesClient.getAccount(accountId);
+      JsonNode account = response.getBody();
       assertThat(account.get("balance").asDouble(), equalTo(expectedBalance.doubleValue()));
-      assertThat(response.getStatus(), equalTo(200));
+      assertThat(response.getStatusCode().value(), equalTo(200));
     }
   }
 
@@ -45,8 +44,7 @@ class WithdrawalsIT extends BaseIT {
   void returnBadRequestForNonSufficientFunds() {
     String accountId = stateSetup.newAccount(randomUUID().toString());
     ObjectNode withdrawal = resourcesDtos.withdrawalDto(BigDecimal.valueOf(1000));
-    Response response = resourcesClient.postWithdrawal(accountId, withdrawal);
-    response.close();
-    assertThat(response.getStatus(), equalTo(400));
+    ResponseEntity<JsonNode> response = resourcesClient.postWithdrawal(accountId, withdrawal);
+    assertThat(response.getStatusCode().value(), equalTo(400));
   }
 }

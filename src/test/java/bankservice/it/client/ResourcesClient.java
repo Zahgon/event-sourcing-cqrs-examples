@@ -1,73 +1,121 @@
 package bankservice.it.client;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import static jakarta.ws.rs.client.Entity.json;
-import static java.util.logging.Level.INFO;
-import static java.util.logging.Logger.getLogger;
-import static org.glassfish.jersey.client.ClientProperties.CONNECT_TIMEOUT;
-import static org.glassfish.jersey.client.ClientProperties.READ_TIMEOUT;
-import static org.glassfish.jersey.logging.LoggingFeature.DEFAULT_LOGGER_NAME;
-import static org.glassfish.jersey.logging.LoggingFeature.Verbosity.PAYLOAD_ANY;
+import static com.google.common.util.concurrent.Uninterruptibles.sleepUninterruptibly;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
-import io.dropwizard.client.JerseyClientBuilder;
-import io.dropwizard.core.setup.Environment;
-import jakarta.ws.rs.client.Client;
-import jakarta.ws.rs.core.Response;
-import org.glassfish.jersey.logging.LoggingFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.UncheckedIOException;
+import java.net.URI;
+import java.time.Duration;
+import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 
 public class ResourcesClient {
 
-  private final Client client;
+  private static final ObjectMapper MAPPER = new ObjectMapper();
+
+  private final TestRestTemplate restTemplate;
   private final ResourcesUrls resourcesUrls;
 
-  public ResourcesClient(Environment environment, int port) {
-    this.client = new JerseyClientBuilder(checkNotNull(environment))
-        .build(ResourcesClient.class.getName())
-        .property(CONNECT_TIMEOUT, 2000)
-        .property(READ_TIMEOUT, 3000)
-        .register(new LoggingFeature(getLogger(DEFAULT_LOGGER_NAME), INFO, PAYLOAD_ANY, 1024));
-    this.resourcesUrls = new ResourcesUrls(port);
+  public ResourcesClient(String baseUrl) {
+    this.restTemplate = new TestRestTemplate(new RestTemplateBuilder()
+        .connectTimeout(Duration.ofSeconds(10))
+        .readTimeout(Duration.ofSeconds(30)));
+    this.resourcesUrls = new ResourcesUrls(baseUrl);
   }
 
   public ResourcesUrls getResourcesUrls() {
     return resourcesUrls;
   }
 
-  public Response postClient(JsonNode clientDto) {
-    return client.target(resourcesUrls.clientsUrl()).request().post(json(clientDto));
+  public ResponseEntity<JsonNode> postClient(JsonNode clientDto) {
+    return exchange(resourcesUrls.clientsUrl(), HttpMethod.POST, json(clientDto));
   }
 
-  public Response getClient(String clientId) {
-    return client.target(resourcesUrls.clientUrl(clientId)).request().get();
+  public ResponseEntity<JsonNode> getClient(String clientId) {
+    return exchange(resourcesUrls.clientUrl(clientId), HttpMethod.GET,
+        HttpEntity.EMPTY);
   }
 
-  public Response putClient(String clientId, JsonNode clientDto) {
-    return client.target(resourcesUrls.clientUrl(clientId)).request().put(json(clientDto));
+  public ResponseEntity<JsonNode> putClient(String clientId, JsonNode clientDto) {
+    return exchange(resourcesUrls.clientUrl(clientId), HttpMethod.PUT,
+        json(clientDto));
   }
 
-  public Response postAccount(JsonNode accountDto) {
-    return client.target(resourcesUrls.accountsUrl()).request().post(json(accountDto));
+  public ResponseEntity<JsonNode> postAccount(JsonNode accountDto) {
+    return exchange(resourcesUrls.accountsUrl(), HttpMethod.POST, json(accountDto));
   }
 
-  public Response getAccount(String accountId) {
-    return client.target(resourcesUrls.accountUrl(accountId)).request().get();
+  public ResponseEntity<JsonNode> getAccount(String accountId) {
+    return exchange(resourcesUrls.accountUrl(accountId), HttpMethod.GET,
+        HttpEntity.EMPTY);
   }
 
-  public Response postDeposit(String accountId, JsonNode depositDto) {
-    return client.target(resourcesUrls.depositsUrl(accountId)).request().post(json(depositDto));
+  public ResponseEntity<JsonNode> postDeposit(String accountId, JsonNode depositDto) {
+    return exchange(resourcesUrls.depositsUrl(accountId), HttpMethod.POST,
+        json(depositDto));
   }
 
-  public Response postWithdrawal(String accountId, JsonNode withdrawalDto) {
-    return client.target(resourcesUrls.withdrawalsUrl(accountId)).request()
-        .post(json(withdrawalDto));
+  public ResponseEntity<JsonNode> postWithdrawal(String accountId, JsonNode withdrawalDto) {
+    return exchange(resourcesUrls.withdrawalsUrl(accountId), HttpMethod.POST,
+        json(withdrawalDto));
   }
 
-  public Response getClientAccounts(String clientId) {
-    return client.target(resourcesUrls.clientAccountsUrl(clientId)).request().get();
+  public ResponseEntity<JsonNode> getClientAccounts(String clientId) {
+    return exchange(resourcesUrls.clientAccountsUrl(clientId), HttpMethod.GET,
+        HttpEntity.EMPTY);
   }
 
-  public Response getAccountTransactions(String accountId) {
-    return client.target(resourcesUrls.accountTransactionsUrl(accountId)).request().get();
+  public ResponseEntity<JsonNode> getAccountTransactions(String accountId) {
+    return exchange(resourcesUrls.accountTransactionsUrl(accountId), HttpMethod.GET,
+        HttpEntity.EMPTY);
+  }
+
+  /**
+   * The transactions once the asynchronously fed projection holds {@code count} rows, read for at
+   * most five seconds; the last answer is returned either way.
+   */
+  public ResponseEntity<JsonNode> getAccountTransactions(String accountId, int count) {
+    ResponseEntity<JsonNode> response = getAccountTransactions(accountId);
+    for (int attempt = 0; attempt < 50; attempt++) {
+      JsonNode rows = response.getBody();
+      if (rows != null && rows.isArray() && rows.size() >= count) {
+        return response;
+      }
+      sleepUninterruptibly(Duration.ofMillis(100));
+      response = getAccountTransactions(accountId);
+    }
+    return response;
+  }
+
+  /**
+   * Reads the entity as JSON only when the service declared it as JSON. Statuses the service
+   * answers without an entity of its own carry the container's HTML error page instead.
+   */
+  private ResponseEntity<JsonNode> exchange(URI url, HttpMethod method, HttpEntity<?> entity) {
+    ResponseEntity<String> response = restTemplate.exchange(url, method, entity, String.class);
+    JsonNode body = null;
+    MediaType type = response.getHeaders().getContentType();
+    if (response.getBody() != null && type != null
+        && type.isCompatibleWith(MediaType.APPLICATION_JSON)) {
+      try {
+        body = MAPPER.readTree(response.getBody());
+      } catch (JsonProcessingException e) {
+        throw new UncheckedIOException(e);
+      }
+    }
+    return new ResponseEntity<>(body, response.getHeaders(), response.getStatusCode());
+  }
+
+  private static HttpEntity<JsonNode> json(JsonNode dto) {
+    HttpHeaders headers = new HttpHeaders();
+    headers.setContentType(MediaType.APPLICATION_JSON);
+    return new HttpEntity<>(dto, headers);
   }
 }

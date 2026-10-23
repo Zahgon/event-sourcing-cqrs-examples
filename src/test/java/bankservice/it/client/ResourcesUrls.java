@@ -1,62 +1,60 @@
 package bankservice.it.client;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static jakarta.ws.rs.core.UriBuilder.fromUri;
-import static java.lang.String.format;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.net.URI;
-import org.glassfish.jersey.uri.UriTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
+import org.springframework.web.util.UriTemplate;
 
 public class ResourcesUrls {
 
-  private int port;
+  private final String baseUrl;
 
-  public ResourcesUrls(int port) {
-    checkArgument(port > 0);
-    this.port = port;
+  public ResourcesUrls(String baseUrl) {
+    this.baseUrl = checkNotNull(baseUrl);
   }
 
   public URI clientsUrl() {
-    return fromUri("http://localhost").port(port).path("clients").build();
+    return localhost().path("/clients").build().toUri();
   }
 
   public URI clientUrl(String clientId) {
-    return fromUri(clientUriTemplate().createURI(clientId)).build();
+    return clientUriTemplate().expand(clientId);
   }
 
   public UriTemplate clientUriTemplate() {
-    return new UriTemplate(format("http://localhost:%d/clients/{id}", port));
+    return new UriTemplate(baseUrl + "/clients/{id}");
   }
 
   public URI accountsUrl() {
-    return fromUri("http://localhost").port(port).path("accounts").build();
+    return localhost().path("/accounts").build().toUri();
   }
 
   public URI accountUrl(String accountId) {
-    return fromUri(accountUriTemplate().createURI(accountId)).build();
+    return accountUriTemplate().expand(accountId);
   }
 
   public UriTemplate accountUriTemplate() {
-    return new UriTemplate(format("http://localhost:%d/accounts/{id}", port));
+    return new UriTemplate(baseUrl + "/accounts/{id}");
   }
 
   public URI depositsUrl(String accountId) {
-    return fromUri("http://localhost").port(port)
-        .path("accounts").path("{id}").path("deposits").build(accountId);
+    return localhost().path("/accounts/{id}/deposits").buildAndExpand(accountId).toUri();
   }
 
   public URI withdrawalsUrl(String accountId) {
-    return fromUri("http://localhost").port(port)
-        .path("accounts").path("{id}").path("withdrawals").build(accountId);
+    return localhost().path("/accounts/{id}/withdrawals").buildAndExpand(accountId).toUri();
   }
 
   public URI clientAccountsUrl(String clientId) {
-    return fromUri("http://localhost").port(port).path("clients").path("{id}").path("accounts")
-        .build(clientId.toString());
+    return localhost().path("/clients/{id}/accounts").buildAndExpand(clientId).toUri();
   }
 
   public URI accountTransactionsUrl(String accountId) {
-    return fromUri("http://localhost").port(port)
-        .path("accounts").path("{id}").path("transactions").build(accountId);
+    return localhost().path("/accounts/{id}/transactions").buildAndExpand(accountId).toUri();
+  }
+
+  private UriComponentsBuilder localhost() {
+    return UriComponentsBuilder.fromUriString(baseUrl);
   }
 }

@@ -7,18 +7,18 @@ import static org.hamcrest.Matchers.equalTo;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import jakarta.ws.rs.core.Response;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.ResponseEntity;
 
 class DepositsIT extends BaseIT {
 
   @Test
   void returnAccountNotFound() {
     ObjectNode deposit = resourcesDtos.depositDto(TEN);
-    Response response = resourcesClient.postDeposit(randomUUID().toString(), deposit);
-    response.close();
-    assertThat(response.getStatus(), equalTo(404));
+    ResponseEntity<JsonNode> response =
+        resourcesClient.postDeposit(randomUUID().toString(), deposit);
+    assertThat(response.getStatusCode().value(), equalTo(404));
   }
 
   @Test
@@ -27,15 +27,14 @@ class DepositsIT extends BaseIT {
     BigDecimal amount = TEN;
     {
       ObjectNode deposit = resourcesDtos.depositDto(amount);
-      Response response = resourcesClient.postDeposit(accountId, deposit);
-      response.close();
-      assertThat(response.getStatus(), equalTo(204));
+      ResponseEntity<JsonNode> response = resourcesClient.postDeposit(accountId, deposit);
+      assertThat(response.getStatusCode().value(), equalTo(204));
     }
     {
-      Response response = resourcesClient.getAccount(accountId);
-      JsonNode account = response.readEntity(JsonNode.class);
+      ResponseEntity<JsonNode> response = resourcesClient.getAccount(accountId);
+      JsonNode account = response.getBody();
       assertThat(account.get("balance").asDouble(), equalTo(amount.doubleValue()));
-      assertThat(response.getStatus(), equalTo(200));
+      assertThat(response.getStatusCode().value(), equalTo(200));
     }
   }
 }

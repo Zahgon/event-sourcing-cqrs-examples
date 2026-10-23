@@ -8,41 +8,45 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.notNullValue;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import jakarta.ws.rs.core.Response;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.ResponseEntity;
 
 class AccountTransactionsIT extends BaseIT {
 
   @Test
   void returnEmptyTransactions() {
-    Response response = resourcesClient.getAccountTransactions(randomUUID().toString());
-    ArrayNode transactions = response.readEntity(ArrayNode.class);
+    ResponseEntity<JsonNode> response =
+        resourcesClient.getAccountTransactions(randomUUID().toString());
+    JsonNode transactions = response.getBody();
+    assertThat(transactions.isArray(), equalTo(true));
     assertThat(transactions.size(), equalTo(0));
-    assertThat(response.getStatus(), equalTo(200));
+    assertThat(response.getStatusCode().value(), equalTo(200));
   }
 
   @Test
   void returnTransactions() {
     String accountId = stateSetup.newAccount(randomUUID().toString());
-    resourcesClient.postDeposit(accountId, resourcesDtos.depositDto(BigDecimal.valueOf(99)))
-        .close();
-    resourcesClient.postDeposit(accountId, resourcesDtos.depositDto(ONE)).close();
-    resourcesClient.postWithdrawal(accountId, resourcesDtos.withdrawalDto(TEN)).close();
+    resourcesClient.postDeposit(accountId, resourcesDtos.depositDto(BigDecimal.valueOf(99)));
+    resourcesClient.postDeposit(accountId, resourcesDtos.depositDto(ONE));
+    resourcesClient.postWithdrawal(accountId, resourcesDtos.withdrawalDto(TEN));
 
-    Response response = resourcesClient.getAccountTransactions(accountId);
-    ArrayNode transactions = response.readEntity(ArrayNode.class);
+    ResponseEntity<JsonNode> response = resourcesClient.getAccountTransactions(accountId, 3);
+    JsonNode transactions = response.getBody();
+    assertThat(transactions.isArray(), equalTo(true));
     assertThat(transactions.size(), equalTo(3));
     verifyTransaction(transactions.get(0), "DEPOSIT", 99.0);
     verifyTransaction(transactions.get(1), "DEPOSIT", 1.0);
     verifyTransaction(transactions.get(2), "WITHDRAWAL", 10.0);
-    assertThat(response.getStatus(), equalTo(200));
+    assertThat(response.getStatusCode().value(), equalTo(200));
   }
 
   private void verifyTransaction(JsonNode transaction, String type, double amount) {
     assertThat(transaction.get("type").asText(), equalTo(type));
     assertThat(transaction.get("amount").asDouble(), equalTo(amount));
     assertThat(transaction.get("timestamp"), notNullValue());
+    // Dropwizard serialises ZonedDateTime as a numeric epoch (WRITE_DATES_AS_TIMESTAMPS on).
+    // notNullValue() alone passes for an ISO string too, which is how the type change hid.
+    assertThat(transaction.get("timestamp").isNumber(), equalTo(true));
   }
 }

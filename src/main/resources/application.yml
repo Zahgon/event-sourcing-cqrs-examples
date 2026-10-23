@@ -1,0 +1,35 @@
+server:
+  port: 8080
+
+spring:
+  web:
+    resources:
+      # Dropwizard served no static content and Jersey was mapped at /*, so an unrouted path failed
+      # inside the application. Spring Boot's static-resource handler would answer it instead, and
+      # its CORS processing stamps Vary fields on to the 404 that the original never sent.
+      add-mappings: false
+  jackson:
+    serialization:
+      # Dropwizard ships WRITE_DATES_AS_TIMESTAMPS enabled and Spring Boot disables it, which
+      # turns the transaction timestamp from a number into an ISO-8601 string for every consumer.
+      write-dates-as-timestamps: true
+    deserialization:
+      # Jersey's Jackson provider refused content after the JSON value ({"a":1}x); Spring Boot's
+      # mapper stops reading after the first value and ignores the rest.
+      fail-on-trailing-tokens: true
+
+management:
+  server:
+    port: 8081
+  endpoints:
+    web:
+      base-path: /
+      exposure:
+        # AdminOperationsFilter serves Dropwizard's admin endpoints (menu, ping, healthcheck,
+        # threads, metrics, tasks) on this port, so no actuator endpoint is exposed.
+        exclude: "*"
+
+logging:
+  level:
+    # Spring MVC warns about every unrouted request; the original logged only the request pair.
+    org.springframework.web.servlet.PageNotFound: ERROR

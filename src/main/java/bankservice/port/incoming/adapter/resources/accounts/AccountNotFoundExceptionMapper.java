@@ -1,18 +1,20 @@
 package bankservice.port.incoming.adapter.resources.accounts;
 
 
-import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
-
 import bankservice.service.account.AccountNotFoundException;
-import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.ext.ExceptionMapper;
-import jakarta.ws.rs.ext.Provider;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-@Provider
-public class AccountNotFoundExceptionMapper implements ExceptionMapper<AccountNotFoundException> {
+@Order(Ordered.HIGHEST_PRECEDENCE)
+@RestControllerAdvice
+public class AccountNotFoundExceptionMapper {
 
-  @Override
-  public Response toResponse(AccountNotFoundException exception) {
-    return Response.status(NOT_FOUND).build();
+  @ExceptionHandler(AccountNotFoundException.class)
+  public ResponseEntity<Void> toResponse(AccountNotFoundException exception) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
   }
 }

@@ -7,12 +7,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import bankservice.it.client.ResourcesClient;
 import bankservice.it.client.ResourcesDtos;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import jakarta.ws.rs.core.Response;
 import java.math.BigDecimal;
-import java.util.HashMap;
-import java.util.Map;
-import org.glassfish.jersey.uri.UriTemplate;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.util.UriTemplate;
 
 public class StateSetup {
 
@@ -26,31 +26,29 @@ public class StateSetup {
 
   public String newClient(String name, String email) {
     ObjectNode clientDto = resourcesDtos.clientDto(name, email);
-    Response response = resourcesClient.postClient(clientDto);
-    response.close();
-    assertThat(response.getStatus(), equalTo(201));
-    Map<String, String> params = new HashMap<>();
+    ResponseEntity<JsonNode> response = resourcesClient.postClient(clientDto);
+    assertThat(response.getStatusCode().value(), equalTo(201));
     UriTemplate clientUriTemplate = resourcesClient.getResourcesUrls().clientUriTemplate();
-    assertTrue(clientUriTemplate.match(response.getHeaderString("Location"), params));
-    return params.get("id");
+    String location = response.getHeaders().getFirst(HttpHeaders.LOCATION);
+    assertTrue(clientUriTemplate.matches(location));
+    return clientUriTemplate.match(location).get("id");
   }
 
   public String newAccount(String clientId) {
-    Response response = resourcesClient.postAccount(resourcesDtos.accountDto(clientId));
-    response.close();
-    assertThat(response.getStatus(), equalTo(201));
-    Map<String, String> params = new HashMap<>();
+    ResponseEntity<JsonNode> response =
+        resourcesClient.postAccount(resourcesDtos.accountDto(clientId));
+    assertThat(response.getStatusCode().value(), equalTo(201));
     UriTemplate accountUriTemplate = resourcesClient.getResourcesUrls().accountUriTemplate();
-    assertTrue(accountUriTemplate.match(response.getHeaderString("Location"), params));
-    return params.get("id");
+    String location = response.getHeaders().getFirst(HttpHeaders.LOCATION);
+    assertTrue(accountUriTemplate.matches(location));
+    return accountUriTemplate.match(location).get("id");
   }
 
   public String newAccountWithBalance(String clientId, BigDecimal balance) {
     String accountId = newAccount(clientId);
     ObjectNode deposit = resourcesDtos.depositDto(balance);
-    Response response = resourcesClient.postDeposit(accountId, deposit);
-    response.close();
-    assertThat(response.getStatus(), equalTo(204));
+    ResponseEntity<JsonNode> response = resourcesClient.postDeposit(accountId, deposit);
+    assertThat(response.getStatusCode().value(), equalTo(204));
     return accountId;
   }
 }

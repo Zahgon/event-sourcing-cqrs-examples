@@ -1,26 +1,25 @@
 package bankservice.port.incoming.adapter.resources.accounts.withdrawals;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import static jakarta.ws.rs.core.MediaType.APPLICATION_JSON;
-import static jakarta.ws.rs.core.Response.Status.BAD_REQUEST;
+import static org.springframework.http.MediaType.APPLICATION_JSON_VALUE;
 
 import bankservice.domain.model.OptimisticLockingException;
 import bankservice.domain.model.account.NonSufficientFundsException;
 import bankservice.service.account.AccountNotFoundException;
 import bankservice.service.account.AccountService;
 import bankservice.service.account.WithdrawAccountCommand;
-import io.dropwizard.jersey.params.UUIDParam;
 import jakarta.validation.Valid;
-import jakarta.ws.rs.Consumes;
-import jakarta.ws.rs.POST;
-import jakarta.ws.rs.Path;
-import jakarta.ws.rs.PathParam;
-import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.core.Response;
+import java.util.UUID;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
-@Consumes(APPLICATION_JSON)
-@Produces(APPLICATION_JSON)
-@Path("/accounts/{id}/withdrawals")
+@RestController
+@RequestMapping(path = "/accounts/{id}/withdrawals", produces = APPLICATION_JSON_VALUE)
 public class WithdrawalsResource {
 
   private final AccountService accountService;
@@ -29,17 +28,19 @@ public class WithdrawalsResource {
     this.accountService = checkNotNull(accountService);
   }
 
-  @POST
-  public Response post(@PathParam("id") UUIDParam accountId, @Valid WithdrawalDto withdrawalDto)
+  @PostMapping(consumes = APPLICATION_JSON_VALUE)
+  // No @NotNull in the original either: an absent body reaches the handler as null.
+  public ResponseEntity<Void> post(@PathVariable("id") UUID accountId,
+      @Valid @RequestBody(required = false) WithdrawalDto withdrawalDto)
       throws AccountNotFoundException, OptimisticLockingException {
 
-    WithdrawAccountCommand command = new WithdrawAccountCommand(accountId.get(),
+    WithdrawAccountCommand command = new WithdrawAccountCommand(accountId,
         withdrawalDto.getAmount());
     try {
       accountService.process(command);
     } catch (NonSufficientFundsException e) {
-      return Response.status(BAD_REQUEST).build();
+      return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
     }
-    return Response.noContent().build();
+    return ResponseEntity.noContent().build();
   }
 }

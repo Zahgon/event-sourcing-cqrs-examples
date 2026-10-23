@@ -1,20 +1,18 @@
 package bankservice.projection.clientaccounts;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import static jakarta.ws.rs.core.MediaType.APPLICATION_JSON;
+import static org.springframework.http.MediaType.APPLICATION_JSON_VALUE;
 
-import io.dropwizard.jersey.params.UUIDParam;
-import jakarta.ws.rs.Consumes;
-import jakarta.ws.rs.GET;
-import jakarta.ws.rs.Path;
-import jakarta.ws.rs.PathParam;
-import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.core.Response;
 import java.util.List;
+import java.util.UUID;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
-@Consumes(APPLICATION_JSON)
-@Produces(APPLICATION_JSON)
-@Path("clients/{id}/accounts")
+@RestController
+@RequestMapping(path = "/clients/{id}/accounts", produces = APPLICATION_JSON_VALUE)
 public class ClientAccountsResource {
 
   private final AccountsRepository accountsRepository;
@@ -23,9 +21,9 @@ public class ClientAccountsResource {
     this.accountsRepository = checkNotNull(accountsRepository);
   }
 
-  @GET
-  public Response get(@PathParam("id") UUIDParam clientId) {
-    List<AccountProjection> accounts = accountsRepository.getAccounts(clientId.get());
-    return Response.ok(accounts).build();
+  @GetMapping
+  public ResponseEntity<List<AccountProjection>> get(@PathVariable("id") UUID clientId) {
+    List<AccountProjection> accounts = accountsRepository.getAccounts(clientId);
+    return ResponseEntity.ok(accounts);
   }
 }

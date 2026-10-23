@@ -1,23 +1,22 @@
 package bankservice.port.incoming.adapter.resources.accounts;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import static jakarta.ws.rs.core.MediaType.APPLICATION_JSON;
-import static jakarta.ws.rs.core.UriBuilder.fromResource;
+import static org.springframework.http.MediaType.APPLICATION_JSON_VALUE;
 
-import bankservice.domain.model.account.Account;
 import bankservice.service.account.AccountService;
 import bankservice.service.account.OpenAccountCommand;
 import jakarta.validation.Valid;
-import jakarta.ws.rs.Consumes;
-import jakarta.ws.rs.POST;
-import jakarta.ws.rs.Path;
-import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.core.Response;
 import java.net.URI;
+import java.util.UUID;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
-@Consumes(APPLICATION_JSON)
-@Produces(APPLICATION_JSON)
-@Path("/accounts")
+@RestController
+@RequestMapping(path = "/accounts", produces = APPLICATION_JSON_VALUE)
 public class AccountsResource {
 
   private final AccountService accountService;
@@ -26,11 +25,16 @@ public class AccountsResource {
     this.accountService = checkNotNull(accountService);
   }
 
-  @POST
-  public Response post(@Valid AccountDto accountDto) {
+  @PostMapping(consumes = APPLICATION_JSON_VALUE)
+  // No @NotNull in the original either: an absent body reaches the handler as null.
+  public ResponseEntity<Void> post(@Valid @RequestBody(required = false) AccountDto accountDto) {
     OpenAccountCommand command = new OpenAccountCommand(accountDto.getClientId());
-    Account account = accountService.process(command);
-    URI accountUri = fromResource(AccountResource.class).build(account.getId());
-    return Response.created(accountUri).build();
+    UUID accountId = accountService.process(command).getId();
+    // Resolved against the base URI, as Jersey did: no query string, no trailing slash.
+    URI accountUri = ServletUriComponentsBuilder.fromCurrentContextPath()
+        .path("/accounts/{id}")
+        .buildAndExpand(accountId)
+        .toUri();
+    return ResponseEntity.created(accountUri).build();
   }
 }

@@ -1,19 +1,20 @@
 package bankservice.port.incoming.adapter.resources;
 
 
-import static jakarta.ws.rs.core.Response.Status.CONFLICT;
-
 import bankservice.domain.model.OptimisticLockingException;
-import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.ext.ExceptionMapper;
-import jakarta.ws.rs.ext.Provider;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-@Provider
-public class OptimisticLockingExceptionMapper implements
-    ExceptionMapper<OptimisticLockingException> {
+@Order(Ordered.HIGHEST_PRECEDENCE)
+@RestControllerAdvice
+public class OptimisticLockingExceptionMapper {
 
-  @Override
-  public Response toResponse(OptimisticLockingException exception) {
-    return Response.status(CONFLICT).build();
+  @ExceptionHandler(OptimisticLockingException.class)
+  public ResponseEntity<Void> toResponse(OptimisticLockingException exception) {
+    return ResponseEntity.status(HttpStatus.CONFLICT).build();
   }
 }

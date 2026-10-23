@@ -1,23 +1,20 @@
 package bankservice.port.incoming.adapter.resources.accounts;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import static jakarta.ws.rs.core.MediaType.APPLICATION_JSON;
-import static jakarta.ws.rs.core.Response.Status.NOT_FOUND;
+import static org.springframework.http.MediaType.APPLICATION_JSON_VALUE;
 
 import bankservice.domain.model.account.Account;
 import bankservice.service.account.AccountService;
-import io.dropwizard.jersey.params.UUIDParam;
-import jakarta.ws.rs.Consumes;
-import jakarta.ws.rs.GET;
-import jakarta.ws.rs.Path;
-import jakarta.ws.rs.PathParam;
-import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.core.Response;
 import java.util.Optional;
+import java.util.UUID;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
-@Consumes(APPLICATION_JSON)
-@Produces(APPLICATION_JSON)
-@Path("/accounts/{id}")
+@RestController
+@RequestMapping(path = "/accounts/{id}", produces = APPLICATION_JSON_VALUE)
 public class AccountResource {
 
   private final AccountService accountService;
@@ -26,14 +23,13 @@ public class AccountResource {
     this.accountService = checkNotNull(accountService);
   }
 
-  @GET
-  public Response get(@PathParam("id") UUIDParam accountId) {
-    Optional<Account> possibleAccount = accountService.loadAccount(accountId.get());
+  @GetMapping
+  public ResponseEntity<AccountDto> get(@PathVariable("id") UUID accountId) {
+    Optional<Account> possibleAccount = accountService.loadAccount(accountId);
     if (!possibleAccount.isPresent()) {
-      return Response.status(NOT_FOUND).build();
+      return ResponseEntity.notFound().build();
     }
-    AccountDto accountDto = toDto(possibleAccount.get());
-    return Response.ok(accountDto).build();
+    return ResponseEntity.ok(toDto(possibleAccount.get()));
   }
 
   private AccountDto toDto(Account account) {

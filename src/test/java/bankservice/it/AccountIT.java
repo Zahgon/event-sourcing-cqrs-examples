@@ -5,9 +5,9 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import jakarta.ws.rs.core.Response;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.ResponseEntity;
 
 class AccountIT extends BaseIT {
 
@@ -15,18 +15,17 @@ class AccountIT extends BaseIT {
   void returnAccount() {
     String clientId = UUID.randomUUID().toString();
     String accountId = stateSetup.newAccount(clientId);
-    Response response = resourcesClient.getAccount(accountId);
-    JsonNode account = response.readEntity(JsonNode.class);
+    ResponseEntity<JsonNode> response = resourcesClient.getAccount(accountId);
+    JsonNode account = response.getBody();
     assertThat(account.get("id").asText(), equalTo(accountId));
-    assertThat(account.get("clientId").asText(), equalTo(clientId.toString()));
+    assertThat(account.get("clientId").asText(), equalTo(clientId));
     assertThat(account.get("balance").asDouble(), equalTo(0.0));
-    assertThat(response.getStatus(), equalTo(200));
+    assertThat(response.getStatusCode().value(), equalTo(200));
   }
 
   @Test
   void returnAccountNotFound() {
-    Response response = resourcesClient.getAccount(randomUUID().toString());
-    response.close();
-    assertThat(response.getStatus(), equalTo(404));
+    ResponseEntity<JsonNode> response = resourcesClient.getAccount(randomUUID().toString());
+    assertThat(response.getStatusCode().value(), equalTo(404));
   }
 }
